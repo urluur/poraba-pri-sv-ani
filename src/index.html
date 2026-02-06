@@ -9,6 +9,8 @@
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdfmake@0.2.9/build/pdfmake.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdfmake@0.2.9/build/vfs_fonts.js"></script>
 
     <style>
         body {
@@ -66,11 +68,11 @@
                     <thead class="table-secondary text-center">
                         <tr>
                             <th>Skupina</th>
-                            <th>T1</th>
-                            <th>T2</th>
-                            <th>Skupaj</th>
-                            <th>Delež %</th>
-                            <th>€</th>
+                            <th>T1 (kWh)</th>
+                            <th>T2 (kWh)</th>
+                            <th>Skupaj (kWh)</th>
+                            <th>Delež (%)</th>
+                            <th>Cena (€)</th>
                         </tr>
                     </thead>
                     <tbody id="elTable"></tbody>
@@ -88,7 +90,7 @@
 
                 <div class="mb-3">
                     Cena elektrike za RG (€/kWh):
-                    <input type="number" step="0.001" id="elPrice" value="0.15" oninput="recalcCosts()">
+                    <input type="number" step="0.001" id="elPrice" value="0.13975" oninput="recalcCosts()">
                 </div>
             </div>
 
@@ -106,11 +108,11 @@
                     <thead class="table-secondary text-center">
                         <tr>
                             <th>Objekt</th>
-                            <th>Ogr. MWh</th>
-                            <th>Hlad. MWh</th>
-                            <th>Skupaj</th>
+                            <th>Ogrevanje (MWh)</th>
+                            <th>Hladjenje (MWh)</th>
+                            <th>Skupaj (MWh)</th>
                             <th>Delež ogrevanja (%)</th>
-                            <th>€</th>
+                            <th>Cena (€)</th>
                         </tr>
                     </thead>
                     <tbody id="hcTable"></tbody>
@@ -141,11 +143,11 @@
                     <thead class="table-secondary text-center">
                         <tr>
                             <th>Skupina</th>
-                            <th>T1</th>
-                            <th>T2</th>
-                            <th>Skupaj</th>
-                            <th>Delež %</th>
-                            <th>€</th>
+                            <th>T1 (kWh)</th>
+                            <th>T2 (kWh)</th>
+                            <th>Skupaj (kWh)</th>
+                            <th>Delež (%)</th>
+                            <th>Cena (€)</th>
                         </tr>
                     </thead>
                     <tbody id="rseTable"></tbody>
@@ -163,7 +165,7 @@
 
                 <div class="mb-3">
                     Cena elektrike za RSE (€/kWh):
-                    <input type="number" step="0.001" id="rsePrice" value="0.12" oninput="recalcCosts()">
+                    <input type="number" step="0.001" id="rsePrice" value="0.17750" oninput="recalcCosts()">
                 </div>
             </div>
 
@@ -186,8 +188,8 @@
                             <th>Začetek</th>
                             <th>Konec</th>
                             <th>Poraba (l)</th>
-                            <th>Delež %</th>
-                            <th>€</th>
+                            <th>Delež (%)</th>
+                            <th>Cena (€)</th>
                         </tr>
                     </thead>
                     <tbody id="waterTable"></tbody>
@@ -204,7 +206,7 @@
                 </table>
 
                 <div class="mb-3">
-                    Cena vode €/m³:
+                    Cena vode (€/m³):
                     <input type="number" step="0.01" id="waterPrice" value="2.0" oninput="recalcCosts()">
                 </div>
             </div>
@@ -486,9 +488,75 @@
             grandTotal.textContent = (roundValues ? grandTotalValue.toFixed(2) : grandTotalValue) + " €";
         }
 
-        // TODO: export only table content without other ui
+        function tableToPdfMake(tableEl) {
+            const rows = [];
+            const pushRow = (tr) => {
+                const cells = Array.from(tr.children).map(td => ({
+                    text: td.textContent.trim(),
+                    alignment: td.classList.contains("text-center") ? "center" : "left"
+                }));
+                rows.push(cells);
+            };
+
+            tableEl.querySelectorAll("thead tr").forEach(pushRow);
+            tableEl.querySelectorAll("tbody tr").forEach(pushRow);
+            tableEl.querySelectorAll("tfoot tr").forEach(pushRow);
+
+            return {
+                unbreakable: true,
+                table: {
+                    headerRows: tableEl.querySelectorAll("thead tr").length,
+                    widths: Array(rows[0]?.length || 1).fill("*"),
+                    body: rows,
+                    dontBreakRows: true
+                },
+                layout: "lightHorizontalLines"
+            };
+        }
+
         function exportPDF() {
-            html2pdf().from(document.getElementById("reportRoot")).save();
+            const sections = [
+                { title: "ODJEMNO MESTO DOM SV. ANA (RG + Rsamostan + Rstud + RZR)", tableId: "elTable" },
+                { title: "OGREVANJE IN HLAJENJE (RG: Toplotna Črpalka)", tableId: "hcTable" },
+                { title: "ODJEMNO MESTO FRANČIŠKANSKI SAMOSTAN KOPER (+RSE)", tableId: "rseTable" },
+                { title: "VODOMERI", tableId: "waterTable" }
+            ];
+
+            const content = [
+                { text: "POROČILO MESEČNE PORABE", style: "header" },
+                { text: document.getElementById("monthLabel").textContent, style: "subheader" },
+                { text: `Cena elektrike RG (€/kWh): ${elPrice.value}`, style: "subheader" },
+                { text: `Cena elektrike RSE (€/kWh): ${rsePrice.value}`, style: "subheader" },
+                { text: `Cena vode (€/m³): ${waterPrice.value}`, style: "subheader" }
+            ];
+
+            sections.forEach(s => {
+                const tableEl = document.getElementById(s.tableId).closest("table");
+                content.push({
+                    unbreakable: true,
+                    stack: [
+                        { text: s.title, style: "section" },
+                        tableToPdfMake(tableEl)
+                    ]
+                });
+            });
+
+            content.push({ text: `SEŠTEVEK ZNESKOV: ${grandTotal.textContent}`, style: "total" });
+
+            const docDefinition = {
+                pageSize: "A4",
+                pageOrientation: "portrait",
+                pageMargins: [30, 40, 30, 40],
+                content,
+                styles: {
+                    header: { fontSize: 16, bold: true, margin: [0, 0, 0, 8] },
+                    subheader: { fontSize: 10, color: "#666", margin: [0, 0, 0, 12] },
+                    section: { fontSize: 12, bold: true, margin: [0, 12, 0, 6] },
+                    total: { fontSize: 12, bold: true, margin: [0, 12, 0, 0] }
+                }
+            };
+
+            pdfMake.createPdf(docDefinition).download("porocilo.pdf");
         }
     </script>
 </body>
